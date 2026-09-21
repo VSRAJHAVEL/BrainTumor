@@ -291,7 +291,7 @@ try:
     n_qb = 10
     dev = qml.device('default.qubit', wires=n_qb)
     
-    @qml.qnode(dev, interface='torch')
+    @qml.qnode(dev, interface='numpy')
     def quantum_circuit(inputs, weights):
         for i in range(n_qb):
             qml.RY(inputs[i], wires=i)
@@ -316,11 +316,16 @@ try:
             self.n_qb = n_qb
         
         def forward(self, x):
-            return torch.stack([
-                torch.stack([torch.as_tensor(v, dtype=torch.float32) 
-                           for v in quantum_circuit(xi[:self.n_qb], self.weights)])
-                for xi in x
-            ])
+            # CNN backbone runs on GPU. Only the tiny 10-value input
+            # crosses to numpy for PennyLane, then result returns to GPU.
+            device = x.device
+            x_np = x.detach().cpu().numpy()          # shape: (batch, n_qb)
+            w_np = self.weights.detach().cpu().numpy()  # shape: (5, n_qb, 3)
+            res = np.stack([
+                np.array(quantum_circuit(xi[:self.n_qb], w_np), dtype=np.float32)
+                for xi in x_np
+            ])  # shape: (batch, n_qb)
+            return torch.from_numpy(res).to(device)  # back to GPU
     print("Using Quantum Layer (10 qubits, 5 layers)")
 except:
     class QuantumLayer(nn.Module):
